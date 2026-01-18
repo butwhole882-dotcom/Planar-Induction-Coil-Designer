@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Planar Inductor – Complete</title>
+
+<style>
+html,body{
+  margin:0;
+  height:100%;
+  background:#fff;
+  overflow:hidden;
+  font-family:system-ui
+}
+canvas{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  background:#fff;
+  touch-action:none
+}
+#menu{
+  position:absolute;
+  top:12px;
+  left:12px;
+  right:12px;
+  max-width:860px;
+  padding:12px;
+  border-radius:14px;
+  border:1px solid rgba(200,0,0,.6);
+  background:rgba(255,255,255,.96);
+  color:#c00000;
+  z-index:10
+}
+#menu.hidden{display:none}
+#hint{
+  position:absolute;
+  top:14px;
+  left:0;
+  right:0;
+  text-align:center;
+  color:#c00000;
+  font-weight:800;
+  display:none;
+  z-index:11
+}
+#hint.show{display:block}
+.row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top:8px;
+  align-items:center
+}
+input,select,button{
+  padding:6px 8px;
+  border-radius:10px;
+  border:1px solid rgba(200,0,0,.6);
+  background:#fff;
+  color:#c00000
+}
+input[type=range]{width:150px}
+input[type=number]{width:96px}
+button{cursor:pointer}
+.small{font-size:12px;opacity:.85}
+.trap{display:none}
+</style>
+</head>
+
+<body>
+<canvas id="cv"></canvas>
+<div id="hint">TAP TO SHOW MENU</div>
+
+<div id="menu">
+  <div class="row" style="justify-content:space-between">
+    <strong>Planar Inductor</strong>
+    <span>
+      <button id="png">Export PNG</button>
+      <button id="svg">Export SVG</button>
+      <button id="hideBtn">Hide menu</button>
+    </span>
+  </div>
+
+  <div class="row">
+    <label><input type="radio" name="dir" id="ccw" checked>CCW</label>
+    <label><input type="radio" name="dir" id="cw">CW</label>
+    <select id="shape">
+      <option>Circle</option>
+      <option>Triangle</option>
+      <option selected>Square</option>
+      <option>Pentagon</option>
+      <option>Hexagon</option>
+      <option>Isosceles Trapezoid</option>
+    </select>
+    <span class="small" id="turnDisp"></span>
+  </div>
+
+  <div class="row">
+    <label>Size</label>
+    <input id="szS" type="range" min="10" max="200" step="1">
+    <input id="szN" type="number" min="10" max="200" step="1">
+    <span class="small">mm</span>
+  </div>
+
+  <div class="row">
+    <label>Rotation</label>
+    <input id="rtS" type="range" min="-180" max="180" step="1">
+    <input id="rtN" type="number" min="-180" max="180" step="1">
+    <span class="small">deg</span>
+  </div>
+
+  <div class="row">
+    <label>Thickness</label>
+    <input id="thS" type="range" min="0.05" max="10" step="0.01">
+    <input id="thN" type="number" min="0.05" max="10" step="0.001">
+    <span class="small">mm</span>
+  </div>
+
+  <div class="row">
+    <label>Spacing</label>
+    <input id="spS" type="range" min="0.05" max="10" step="0.01">
+    <input id="spN" type="number" min="0.05" max="10" step="0.001">
+    <span class="small">mm</span>
+  </div>
+
+  <div class="row">
+    <label>Turns</label>
+    <input id="tuS" type="range" min="1" max="240" step="1">
+    <input id="tuN" type="number" min="1" max="240" step="1">
+  </div>
+
+  <div class="row">
+    <label>Corner radius</label>
+    <input id="raS" type="range" min="0" max="10" step="0.01">
+    <input id="raN" type="number" min="0" max="10" step="0.001">
+    <span class="small">mm</span>
+  </div>
+
+  <div class="row trap" id="trapRow">
+    <label>Trap angle</label>
+    <input id="ang" type="range" min="1" max="89" step="0.01" value="32.73">
+    <select id="angMode">
+      <option value="deg">deg</option>
+      <option value="dms">deg+min</option>
+      <option value="rad">rad</option>
+    </select>
+    <span class="small" id="angDisp"></span>
+
+    <label style="margin-left:8px">Trap height</label>
+    <input id="hei" type="range" min="10" max="90" step="1" value="50">
+    <span class="small">%</span>
+  </div>
+</div>
+
+<script>
+(() => {
+  const cvs = document.getElementById('cv');
+  const ctx = cvs.getContext('2d', { alpha: false });
+
+  // UI elements
+  const menu = document.getElementById('menu');
+  const hint = document.getElementById('hint');
+  const hideBtn = document.getElementById('hideBtn');
+  const pngBtn = document.getElementById('png');
+  const svgBtn = document.getElementById('svg');
+
+  const shapeEl = document.getElementById('shape');
+  const ccwEl = document.getElementById('ccw');
+  const cwEl = document.getElementById('cw');
+
+  const szS = document.getElementById('szS'), szN = document.getElementById('szN');
+  const rtS = document.getElementById('rtS'), rtN = document.getElementById('rtN');
+  const thS = document.getElementById('thS'), thN = document.getElementById('thN');
+  const spS = document.getElementById('spS'), spN = document.getElementById('spN');
+  const tuS = document.getElementById('tuS'), tuN = document.getElementById('tuN');
+  const raS = document.getElementById('raS'), raN = document.getElementById('raN');
+  const trapRow = document.getElementById('trapRow');
+  const turnDisp = document.getElementById('turnDisp');
+
+  // Defaults
+  const defaults = {
+    size: 80,         // mm
+    rotation: 0,      // deg
+    thickness: 0.5,   // mm
+    spacing: 0.5,     // mm
+    turns: 10,
+    corner: 0.5       // mm
+  };
+
+  // Initialize controls
+  function setInitial() {
+    szS.value = defaults.size; szN.value = defaults.size;
+    rtS.value = defaults.rotation; rtN.value = defaults.rotation;
+    thS.value = defaults.thickness; thN.value = defaults.thickness;
+    spS.value = defaults.spacing; spN.value = defaults.spacing;
+    tuS.value = defaults.turns; tuN.value = defaults.turns;
+    raS.value = defaults.corner; raN.value = defaults.corner;
+    updateTurnDisp();
+  }
+
+  // Resize canvas for DPR
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    cvs.style.width = width + 'px';
+    cvs.style.height = height + 'px';
+    cvs.width = Math.round(width * dpr);
+    cvs.height = Math.round(height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS px coordinates
+    draw();
+  }
+
+  window.addEventListener('resize', resize);
+
+  // Sync helpers
+  function syncRangeNumber(rangeEl, numberEl, parser = parseFloat) {
+    rangeEl.addEventListener('input', () => {
+      numberEl.value = rangeEl.value;
+      draw();
+    });
+    numberEl.addEventListener('input', () => {
+      let val = numberEl.value;
+      if (val === '') return;
+      rangeEl.value = val;
+      draw();
+    });
+  }
+
+  syncRangeNumber(szS, szN);
+  syncRangeNumber(rtS, rtN);
+  syncRangeNumber(thS, thN);
+  syncRangeNumber(spS, spN);
+  syncRangeNumber(tuS, tuN);
+  syncRangeNumber(raS, raN);
+
+  // Shape-dependent UI
+  shapeEl.addEventListener('change', () => {
+    const val = shapeEl.value;
+    trapRow.style.display = val === 'Isosceles Trapezoid' ? 'flex' : 'none';
+    draw();
+  });
+
+  ccwEl.addEventListener('change', draw);
+  cwEl.addEventListener('change', draw);
+
+  function updateTurnDisp() {
+    turnDisp.textContent = `Turns: ${tuN.value}`;
+  }
+  tuS.addEventListener('input', updateTurnDisp);
+  tuN.addEventListener('input', updateTurnDisp);
+
+  // Toggle menu visibility
+  hideBtn.addEventListener('click', () => {
+    menu.classList.add('hidden');
+    hint.classList.add('show');
+  });
+
+  // Tap to show menu
+  let lastTap = 0;
+  cvs.addEventListener('pointerdown', () => {
+    const t = Date.now();
+    // single tap to show
+    if (menu.classList.contains('hidden')) {
+      menu.classList.remove('hidden');
+      hint.classList.remove('show');
+    } else if (t - lastTap < 300) {
+      menu.classList.add('hidden');
+      hint.classList.add('show');
+    }
+    lastTap = t;
+  });
+
+  // Drawing utilities
+  function deg2rad(d) { return d * Math.PI / 180; }
+
+  function polygonPoints(sides, radius, rotationRad, trapezoid = null) {
+    const pts = [];
+    if (trapezoid) {
+      // trapezoid: {topWidthFactor, bottomWidthFactor, heightFactor} - produce centered trapezoid
+      // Using rectangle-like coordinates scaled
+      const wTop = trapezoid.topWidthFactor * 2 * radius;
+      const wBottom = trapezoid.bottomWidthFactor * 2 * radius;
+      const h = trapezoid.heightFactor * 2 * radius;
+      // Build trapezoid centered at origin, then rotate
+      const xTop = wTop / 2, xBottom = wBottom / 2;
+      pts.push([-xBottom, h / 2]);
+      pts.push([xBottom, h / 2]);
+      pts.push([xTop, -h / 2]);
+      pts.push([-xTop, -h / 2]);
+      // apply rotation
+      return pts.map(([x, y]) => {
+        const rx = x * Math.cos(rotationRad) - y * Math.sin(rotationRad);
+        const ry = x * Math.sin(rotationRad) + y * Math.cos(rotationRad);
+        return [rx, ry];
+      });
+    }
+    for (let i = 0; i < sides; i++) {
+      const a = rotationRad + (i * Math.PI * 2 / sides);
+      pts.push([Math.cos(a) * radius, Math.sin(a) * radius]);
+    }
+    return pts;
+  }
+
+  function pathFromPoints(ctx, pts) {
+    if (!pts || pts.length === 0) return;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+  }
+
+  // Create SVG path string from points
+  function svgPathFromPoints(pts) {
+    if (!pts || pts.length === 0) return '';
+    let d = `M ${pts[0][0].toFixed(3)} ${pts[0][1].toFixed(3)}`;
+    for (let i = 1; i < pts.length; i++) d += ` L ${pts[i][0].toFixed(3)} ${pts[i][1].toFixed(3)}`;
+    d += ' Z';
+    return d;
+  }
+
+  // main draw
+  function draw(toSvg = false) {
+    // read parameters
+    const size = parseFloat(szN.value);
+    const rotation = parseFloat(rtN.value);
+    const thickness = parseFloat(thN.value);
+    const spacing = parseFloat(spN.value);
+    const turns = Math.max(1, Math.floor(parseFloat(tuN.value)));
+    const corner = parseFloat(raN.value);
+    const shape = shapeEl.value;
+    const dir = cwEl.checked ? -1 : 1;
+
+    updateTurnDisp();
+
+    // compute effective outer radius in mm: base size/2 is the outermost turn centerline
+    // but we need to ensure all turns fit inside the available area, so compute total radial span
+    const radialSpan = (thickness + spacing) * (turns - 1) + thickness; // mm measured across conductor widths
+    const outerRadiusMm = size / 2 + 1; // slight margin
+
+    // convert mm to px so drawing fits canvas
+    const marginPx = 20; // CSS px margin
+    const cw = cvs.clientWidth;
+    const ch = cvs.clientHeight;
+    const totalNeededMm = (outerRadiusMm * 2) + (radialSpan * 2) / 2; // approximate
+    // pxPerMm such that totalNeededMm maps into min(cw,ch) - margin
+    const pxPerMm = Math.min((cw - marginPx) / (outerRadiusMm * 2 + radialSpan), (ch - marginPx) / (outerRadiusMm * 2 + radialSpan));
+
+    // convert helper
+    const mm2px = mm => mm * pxPerMm;
+
+    // center
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.save();
+    ctx.translate(cw / 2, ch / 2);
+    ctx.rotate(deg2rad(rotation));
+
+    // Set drawing style
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#c00000';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // For each turn: compute centerline radius and stroke
+    // We'll draw from outermost inward
+    const outerRadiusPx = mm2px(outerRadiusMm);
+    for (let t = 0; t < turns; t++) {
+      const offsetMm = (thickness + spacing) * t * dir; // direction controls inward/outward
+      const radiusMm = outerRadiusMm - ( ( (thickness + spacing) * t ) * (dir === 1 ? 1 : -1) );
+      // To keep a consistent spiral inward regardless of dir, compute centerline radius:
+      let centerlineRadiusMm = outerRadiusMm - (thickness + spacing) * t;
+      if (dir < 0) centerlineRadiusMm = outerRadiusMm - (thickness + spacing) * (turns - 1 - t); // reverse order
+      const rPx = mm2px(centerlineRadiusMm);
+
+      // path for shape
+      if (shape === 'Circle') {
+        ctx.beginPath();
+        ctx.lineWidth = Math.max(1, mm2px(thickness)); // thickness in px
+        ctx.arc(0, 0, rPx, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (shape === 'Isosceles Trapezoid') {
+        // trapezoid parameters: base width = size, top width smaller by angle
+        // interpret ang and hei if present
+        const ang = parseFloat(document.getElementById('ang').value) || 32.73;
+        const heiPct = parseFloat(document.getElementById('hei').value) || 50;
+        // produce trapezoid by computing top/bottom widths relative to radius rPx
+        // we use simple paramization: bottomWidth = size, topWidth = bottomWidth * (1 - 2*tan(angle)*h/size) ... approximate
+        const heightFactor = heiPct / 100; // 0..1
+        const bottomW = mm2px(size) * (centerlineRadiusMm / outerRadiusMm);
+        const topW = bottomW * (1 - (Math.tan(deg2rad(ang)) * heightFactor * 0.5));
+        // create trapezoid points in px space normalized to rPx
+        // We'll supply polygonPoints with trapezoid spec in mm-space approximated using rPx
+        const trapezoidSpec = {
+          topWidthFactor: topW / (2 * rPx) || 0.5,
+          bottomWidthFactor: bottomW / (2 * rPx) || 0.9,
+          heightFactor: 0.6 * heightFactor
+        };
+        const pts = polygonPoints(4, rPx, 0, trapezoidSpec);
+        ctx.lineWidth = Math.max(1, mm2px(thickness));
+        pathFromPoints(ctx, pts);
+        ctx.stroke();
+      } else {
+        let sides = 4;
+        if (shape === 'Triangle') sides = 3;
+        if (shape === 'Square') sides = 4;
+        if (shape === 'Pentagon') sides = 5;
+        if (shape === 'Hexagon') sides = 6;
+        const rotRad = 0; // rotation handled by ctx.rotate
+        const pts = polygonPoints(sides, rPx, rotRad);
+        ctx.lineWidth = Math.max(1, mm2px(thickness));
+        pathFromPoints(ctx, pts);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+    if (toSvg) {
+      return { sizePx: Math.max(cw, ch), pxPerMm };
+    }
+  }
+
+  // Export PNG
+  pngBtn.addEventListener('click', () => {
+    // create a temporary high-res canvas for export (2x)
+    const scale = 3;
+    const out = document.createElement('canvas');
+    out.width = Math.round(cvs.clientWidth * scale);
+    out.height = Math.round(cvs.clientHeight * scale);
+    const outCtx = out.getContext('2d');
+    // white background
+    outCtx.fillStyle = '#fff';
+    outCtx.fillRect(0,0,out.width,out.height);
+
+    // draw using the same logic scaled into the export canvas by temporarily adjusting css size
+    // We'll re-run a simplified draw onto outCtx
+    const size = parseFloat(szN.value);
+    const rotation = parseFloat(rtN.value);
+    const thickness = parseFloat(thN.value);
+    const spacing = parseFloat(spN.value);
+    const turns = Math.max(1, Math.floor(parseFloat(tuN.value)));
+    const shape = shapeEl.value;
+    const dir = cwEl.checked ? -1 : 1;
+
+    const radialSpan = (thickness + spacing) * (turns - 1) + thickness;
+    const outerRadiusMm = size / 2 + 1;
+    const marginPx = 40;
+    const totalNeededMm = (outerRadiusMm * 2) + (radialSpan);
+    const pxPerMm = Math.min((out.width - marginPx) / (outerRadiusMm * 2 + radialSpan), (out.height - marginPx) / (outerRadiusMm * 2 + radialSpan));
+    const mm2px = mm => mm * pxPerMm;
+
+    outCtx.translate(out.width / 2, out.height / 2);
+    outCtx.rotate(deg2rad(rotation));
+    outCtx.strokeStyle = '#c00000';
+    outCtx.lineCap = 'round';
+    outCtx.lineJoin = 'round';
+    for (let t = 0; t < turns; t++) {
+      const centerlineRadiusMm = outerRadiusMm - (thickness + spacing) * t;
+      let rPx = mm2px(centerlineRadiusMm);
+      const lw = Math.max(1, mm2px(thickness));
+      outCtx.lineWidth = lw;
+      if (shape === 'Circle') {
+        outCtx.beginPath();
+        outCtx.arc(0, 0, rPx, 0, Math.PI * 2);
+        outCtx.stroke();
+      } else if (shape === 'Isosceles Trapezoid') {
+        const ang = parseFloat(document.getElementById('ang').value) || 32.73;
+        const heiPct = parseFloat(document.getElementById('hei').value) || 50;
+        const heightFactor = heiPct / 100;
+        const bottomW = mm2px(size) * (centerlineRadiusMm / outerRadiusMm);
+        const topW = bottomW * (1 - (Math.tan(deg2rad(ang)) * heightFactor * 0.5));
+        const trapezoidSpec = {
+          topWidthFactor: topW / (2 * rPx) || 0.5,
+          bottomWidthFactor: bottomW / (2 * rPx) || 0.9,
+          heightFactor: 0.6 * heightFactor
+        };
+        const pts = polygonPoints(4, rPx, 0, trapezoidSpec);
+        outCtx.beginPath();
+        outCtx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) outCtx.lineTo(pts[i][0], pts[i][1]);
+        outCtx.closePath();
+        outCtx.stroke();
+      } else {
+        let sides = 4;
+        if (shape === 'Triangle') sides = 3;
+        if (shape === 'Square') sides = 4;
+        if (shape === 'Pentagon') sides = 5;
+        if (shape === 'Hexagon') sides = 6;
+        const pts = polygonPoints(sides, rPx, 0);
+        outCtx.beginPath();
+        outCtx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) outCtx.lineTo(pts[i][0], pts[i][1]);
+        outCtx.closePath();
+        outCtx.stroke();
+      }
+    }
+
+    const data = out.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = data;
+    a.download = 'planar-inductor.png';
+    a.click();
+  });
+
+  // Export SVG
+  svgBtn.addEventListener('click', () => {
+    // Build an SVG that approximates the canvas drawing using stroke paths
+    const size = parseFloat(szN.value);
+    const rotation = parseFloat(rtN.value);
+    const thickness = parseFloat(thN.value);
+    const spacing = parseFloat(spN.value);
+    const turns = Math.max(1, Math.floor(parseFloat(tuN.value)));
+    const shape = shapeEl.value;
+    const dir = cwEl.checked ? -1 : 1;
+
+    const radialSpan = (thickness + spacing) * (turns - 1) + thickness;
+    const outerRadiusMm = size / 2 + 1;
+    const marginMm = 5;
+    // compute canvas px size in mm units for SVG: choose viewBox in mm so user can scale
+    const viewSizeMm = (outerRadiusMm * 2 + radialSpan + marginMm * 2);
+    const viewBox = [-viewSizeMm/2, -viewSizeMm/2, viewSizeMm, viewSizeMm];
+
+    // helper to create path data in mm units
+    function ptsMmForTurn(turnIndex) {
+      const centerlineRadiusMm = outerRadiusMm - (thickness + spacing) * turnIndex;
+      if (shape === 'Circle') {
+        return { type: 'circle', r: centerlineRadiusMm };
+      } else if (shape === 'Isosceles Trapezoid') {
+        const ang = parseFloat(document.getElementById('ang').value) || 32.73;
+        const heiPct = parseFloat(document.getElementById('hei').value) || 50;
+        const heightFactor = heiPct / 100;
+        const bottomW = size * (centerlineRadiusMm / outerRadiusMm);
+        const topW = bottomW * (1 - (Math.tan(deg2rad(ang)) * heightFactor * 0.5));
+        const trapezoidSpec = {
+          topWidthFactor: (topW / 2) / centerlineRadiusMm || 0.5,
+          bottomWidthFactor: (bottomW / 2) / centerlineRadiusMm || 0.9,
+          heightFactor: 0.6 * heightFactor
+        };
+        const pts = polygonPoints(4, centerlineRadiusMm, 0, trapezoidSpec);
+        return { type: 'poly', pts };
+      } else {
+        let sides = 4;
+        if (shape === 'Triangle') sides = 3;
+        if (shape === 'Square') sides = 4;
+        if (shape === 'Pentagon') sides = 5;
+        if (shape === 'Hexagon') sides = 6;
+        const pts = polygonPoints(sides, centerlineRadiusMm, 0);
+        return { type: 'poly', pts };
+      }
+    }
+
+    // build svg content (units are mm)
+    const lines = [];
+    lines.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox.join(' ')}" width="${viewSizeMm}mm" height="${viewSizeMm}mm">`);
+    lines.push(`<rect x="${viewBox[0]}" y="${viewBox[1]}" width="${viewBox[2]}" height="${viewBox[3]}" fill="#fff" />`);
+    lines.push(`<g transform="rotate(${rotation})">`);
+    for (let t = 0; t < turns; t++) {
+      const obj = ptsMmForTurn(t);
+      if (obj.type === 'circle') {
+        lines.push(`<circle cx="0" cy="0" r="${obj.r.toFixed(3)}" fill="none" stroke="#c00000" stroke-width="${thickness.toFixed(3)}" stroke-linecap="round" stroke-linejoin="round" />`);
+      } else {
+        const d = svgPathFromPoints(obj.pts.map(p => [p[0].toFixed(3), p[1].toFixed(3)]));
+        // svgPathFromPoints already formats numbers; we need pts with numeric coordinates; it accepts numeric arrays
+        const numericPts = obj.pts;
+        const pathD = svgPathFromPoints(numericPts);
+        lines.push(`<path d="${pathD}" fill="none" stroke="#c00000" stroke-width="${thickness.toFixed(3)}" stroke-linecap="round" stroke-linejoin="round" />`);
+      }
+    }
+    lines.push('</g>');
+    lines.push('</svg>');
+    const svg = lines.join('\n');
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'planar-inductor.svg';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // initialize
+  setInitial();
+  resize(); // sets canvas and draws
+
+  // ensure we redraw after control changes
+  const controls = [szS, szN, rtS, rtN, thS, thN, spS, spN, tuS, tuN, raS, raN, shapeEl, ccwEl, cwEl];
+  controls.forEach(c => {
+    c.addEventListener('input', () => draw());
+    c.addEventListener('change', () => draw());
+  });
+
+})();
+</script>
+
+</body>
+</html>
